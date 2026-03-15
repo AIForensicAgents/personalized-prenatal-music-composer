@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Personalized Prenatal Music Composer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
+<script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { font-family: 'Nunito', sans-serif; }
+body { background: linear-gradient(135deg, #fdf2f8 0%, #ede9fe 50%, #e0f2fe 100%); min-height: 100vh; }
+.glass { background: rgba(255,255,255,0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.8); }
+.glass-dark { background: rgba(255,255,255,0.5); backdrop-filter: blur(10px); }
+@keyframes pulse-soft { 0%,100%{transform:scale(1);opacity:0.8} 50%{transform:scale(1.05);opacity:1} }
+@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+@keyframes wave { 0%{transform:scaleY(0.3)} 50%{transform:scaleY(1)} 100%{transform:scaleY(0.3)} }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+.wave-bar { animation: wave 1.2s ease-in-out infinite; }
+.wave-bar:nth-child(2) { animation-delay: 0.1s; }
+.wave-bar:nth-child(3) { animation-delay: 0.2s; }
+.wave-bar:nth-child(4) { animation-delay: 0.3s; }
+.wave-bar:nth-child(5) { animation-delay: 0.4s; }
+.btn-primary { background: linear-gradient(135deg, #a78bfa, #818cf8, #7dd3fc); }
+.btn-primary:hover { background: linear-gradient(135deg, #8b5cf6, #6366f1, #38bdf8); }
+.btn-warm { background: linear-gradient(135deg, #f9a8d4, #c084fc); }
+.btn-warm:hover { background: linear-gradient(135deg, #f472b6, #a855f7); }
+.progress-ring { transition: stroke-dashoffset 0.5s ease; }
+input[type="range"] { -webkit-appearance: none; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #c4b5fd, #93c5fd); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #8b5cf6, #6366f1); border: 3px solid white; box-shadow: 0 2px 8px rgba(99,102,241,0.4); cursor: pointer; }
+.tab-active { background: linear-gradient(135deg, #a78bfa, #818cf8); color: white; box-shadow: 0 4px 12px rgba(129,140,248,0.4); }
+.rating-star { cursor: pointer; transition: all 0.2s; }
+.rating-star:hover { transform: scale(1.3); }
+.fade-in { animation: fadeIn 0.4s ease-out; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+.notification { animation: slideDown 0.3s ease-out; }
+@keyframes slideDown { from{transform:translateY(-100%);opacity:0} to{transform:translateY(0);opacity:1} }
+</style>
+</head>
+<body class="min-h-screen pb-24" x-data="app()" x-init="init()">
+
+<!-- Notification -->
+<div x-show="notification.show" x-transition class="fixed top-4 left-4 right-4 z-50 notification">
+  <div class="glass rounded-2xl p-4 shadow-lg flex items-center gap-3" :class="notification.type === 'error' ? 'border-red-200 bg-red-50/80' : 'border-green-200 bg-green-50/80'">
+    <span x-text="notification.type === 'error' ? '⚠️' : '✨'" class="text-2xl"></span>
+    <p class="text-sm font-medium text-gray-700 flex-1" x-text="notification.message"></p>
+    <button @click="notification.show = false" class="text-gray-400 text-lg">✕</button>
+  </div>
+</div>
+
+<!-- Loading Overlay -->
+<div x-show="loading" class="fixed inset-0 z-40 flex items-center justify-center bg-white/60 backdrop-blur-sm">
+  <div class="text-center">
+    <div class="flex items-end justify-center gap-1 mb-4 h-12">
+      <div class="w-2 bg-violet-400 rounded-full wave-bar" style="height:100%"></div>
+      <div class="w-2 bg-indigo-400 rounded-full wave-bar" style="height:100%"></div>
+      <div class="w-2 bg-sky-400 rounded-full wave-bar" style="height:100%"></div>
+      <div class="w-2 bg-pink-400 rounded-full wave-bar" style="height:100%"></div>
+      <div class="w-2 bg-violet-400 rounded-full wave-bar" style="height:100%"></div>
+    </div>
+    <p class="text-gray-600 font-semibold" x-text="loadingMessage">Composing your melody...</p>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="glass sticky top-0 z-30 px-4 py-3 shadow-sm">
+  <div class="max-w-lg mx-auto flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-3xl animate-float">🎒</span>
+      <div>
+        <h1 class="text-lg font-extrabold bg-gradient-to-r from-violet-600 via-indigo-500 to-sky-500 bg-clip-text text-transparent leading-tight">BellyTunes</h1>
+        <p class="text-[10px] text-gray-400 font-medium -mt-0.5">Prenatal Music Composer</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-xs bg-violet-100 text-violet-600 px-2 py-1 rounded-full font-bold" x-show="compositions.length > 0" x-text="compositions.length + ' 🎵'"></span>
+      <button @click="showSettings = !showSettings" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition">⚙️</button>
+    </div>
+  </div>
+</header>
+
+<!-- Settings Panel -->
+<div x-show="showSettings" x-transition class="fixed inset-0 z-35 bg-black/30 backdrop-blur-sm" @click.self="showSettings = false">
+  <div class="absolute right-0 top-0 bottom-0 w-80 max-w-full bg-white shadow-xl p-6 overflow-y-auto">
+    <h3 class="font-bold text-lg mb-4">⚙️ Settings</h3>
+    <div class="space-y-4">
+      <div>
+        <p class="text-sm font-semibold text-gray-600 mb-1">AI Usage Stats</p>
+        <div class="text-xs text-gray-400 space-y-1">
+          <p>Total AI calls: <span x-text="aiStats.totalCalls" class="font-bold text-violet-600"></span></p>
+          <p>Total tokens in: <span x-text="aiStats.totalInputTokens" class="font-bold text-violet-600"></span></p>
+          <p>Total tokens out: <span x-text="aiStats.totalOutputTokens" class="font-bold text-violet-600"></span></p>
+          <p>Total AI time: <span x-text="(aiStats.totalTime/1000).toFixed(1) + 's'" class="font-bold text-violet-600"></span></p>
+        </div>
+      </div>
+      <hr>
+      <button @click="if(confirm('Clear all data?')){localStorage.clear();location.reload()}" class="w-full py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm">🗑️ Reset All Data</button>
+    </div>
+    <button @click="showSettings = false" class="mt-6 w-full py-3 glass rounded-xl font-bold text-sm">Close</button>
+  </div>
+</div>
+
+<!-- Navigation Tabs -->
+<nav class="sticky top-[60px] z-20 px-4 py-2 bg-white/30 backdrop-blur-md">
+  <div class="max-w-lg mx-auto flex gap-2">
+    <template x-for="(tab, i) in tabs" :key="i">
+      <button @click="activeTab = tab.id" class="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all duration-300"
+              :class="activeTab === tab.id ? 'tab-active' : 'glass text-gray-500 hover:text-gray-700'">
+        <span x-text="tab.emoji + ' ' + tab.label"></span>
+      </button>
+    </template>
+  </div>
+</nav>
+
+<main class="max-w-lg mx-auto px-4 py-4">
+
+  <!-- COMPOSE TAB -->
+  <div x-show="activeTab === 'compose'" class="space-y-4 fade-in">
+    
+    <!-- Onboarding -->
+    <div x-show="!profile.name" class="glass rounded-3xl p-6 text-center space-y-4">
+      <div class="text-5xl animate-float">🌟</div>
+      <h2 class="text-xl font-extrabold text-gray-800">Welcome to BellyTunes!</h2>
+      <p class="text-sm text-gray-500">Create personalized music for your baby — tuned to their developmental stage, from womb to world. 🎶</p>
+      <div class="space-y-3">
+        <input x-model="profile.name" type="text" placeholder="Your name (e.g., Sarah)" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-violet-400 focus:ring-2 focus:ring-violet-200 outline-none text-sm">
+        <input x-model="profile.babyName" type="text" placeholder="Baby's name (optional 💝)" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-violet-400 focus:ring-2 focus:ring-violet-200 outline-none text-sm">
+        <div class="flex gap-2">
+          <button @click="profile.role = 'parent'" class="flex-1 py-3 rounded-xl text-sm font-bold transition" :class="profile.role === 'parent' ? 'btn-primary text-white' : 'glass text-gray-600'">👨‍👩‍👧 Parent</button>
+          <button @click="profile.role = 'educator'" class="flex-1 py-3 rounded-xl text-sm font-bold transition" :class="profile.role === 'educator' ? 'btn-primary text-white' : 'glass text-gray-600'">📚 Educator</button>
+          <button @click="profile.role = 'therapist'" class="flex-1 py-3 rounded-xl text-sm font-bold transition" :class="profile.role === 'therapist' ? 'btn-primary text-white' : 'glass text-gray-600'">🏥 Therapist</button>
+        </div>
+        <button @click="saveProfile()" class="w-full py-4 btn-primary text-white rounded-2xl font-bold text-base shadow-lg shadow-violet-200 active:scale-95 transition" :disabled="!profile.name">
+          Get Started ✨
+        </button>
+      </div>
+    </div>
+
+    <!-- Compose Form -->
+    <div x-show="profile.name" class="space-y-4">
+      
+      <!-- Quick Greeting -->
+      <div class="glass rounded-2xl p-4 flex items-center gap-3">
+        <span class="text-3xl">👋</span>
+        <div>
+          <p class="font-bold text-gray-800 text-sm">Hi <span x-text="profile.name"></span>!</p>
+          <p class="text-xs text-gray-400">Let's compose something beautiful<span x-show="profile.babyName"> for <span x-text="profile.babyName" class="text-violet-500 font-semibold"></span></span> 🎵</p>
+        </div>
+      </div>
+
+      <!-- Stage Selection -->
+      <div class="glass rounded-2xl p-5 space-y-3">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2">🎒 Stage</h3>
+        <div class="grid grid-cols-2 gap-2">
+          <template x-for="stage in stages" :key="stage.id">
+            <button @click="composeForm.stage = stage.id" 
+                    class="p-3 rounded-xl text-left transition-all active:scale-95"
+                    :class="composeForm.stage === stage.id ? 'btn-primary text-white shadow-lg' : 'glass-dark text-gray-600 hover:bg-white/60'">
+              <span x-text="stage.emoji" class="text-2xl block mb-1"></span>
+              <span x-text="stage.label" class="text-xs font-bold block"></span>
+              <span x-text="stage.desc" class="text-[10px] opacity-70 block"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Trimester (prenatal) -->
+      <div x-show="composeForm.stage === 'prenatal'" class="glass rounded-2xl p-5 space-y-3 fade-in">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2">📅 Trimester</h3>
+        <div class="flex gap-2">
+          <template x-for="t in [1,2,3]" :key="t">
+            <button @click="composeForm.trimester = t" 
+                    class="flex-1 py-3 rounded-xl font-bold text-sm transition active:scale-95"
+                    :class="composeForm.trimester === t ? 'btn-warm text-white shadow-lg' : 'glass-dark text-gray-600'">
+              <span x-text="t === 1 ? '1st' : t === 2 ? '2nd' : '3rd'"></span>
+            </button>
+          </template>
+        </div>
+        <p class="text-xs text-gray-400" x-show="composeForm.trimester === 1">💡 Baby is developing. Low-freq vibrations & gentle rhythms work best.</p>
+        <p class="text-xs text-gray-400" x-show="composeForm.trimester === 2">💡 Hearing begins ~18 weeks. Filtered mid-range tones are ideal.</p>
+        <p class="text-xs text-gray-400" x-show="composeForm.trimester === 3">💡 Baby can hear clearly! Familiar melodies help bonding.</p>
+      </div>
+
+      <!-- Mood -->
+      <div class="glass rounded-2xl p-5 space-y-3">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2">🎭 Mood & Intent</h3>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="mood in moods" :key="mood.id">
+            <button @click="composeForm.mood = mood.id" 
+                    class="px-4 py-2.5 rounded-full text-xs font-bold transition active:scale-95"
+                    :class="composeForm.mood === mood.id ? 'btn-primary text-white shadow-md' : 'glass-dark text-gray-600'">
+              <span x-text="mood.emoji + ' ' + mood.label"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Instruments -->
+      <div class="glass rounded-2xl p-5 space-y-3">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2">🎸 Preferred Sounds</h3>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="inst in instruments" :key="inst.id">
+            <button @click="toggleInstrument(inst.id)" 
+                    class="px-3 py-2 rounded-full text-xs font-bold transition active:scale-95"
+                    :class="composeForm.instruments.includes(inst.id) ? 'bg-indigo-500 text-white shadow-md' : 'glass-dark text-gray-500'">
+              <span x-text="inst.emoji + ' ' + inst.label"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Duration -->
+      <div class="glass rounded-2xl p-5 space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="font-bold text-gray-800">⏱️ Duration</h3>
+          <span class="text-sm font-bold text-violet-600" x-text="composeForm.duration + ' min'"></span>
+        </div>
+        <input type="range" x-model.number="composeForm.duration" min="1" max="10" step="1" class="w-full">
+        <div class="flex justify-between text-[10px] text-gray-400 px-1">
+          <span>1 min</span><span>5 min</span><span>10 min</span>
+        </div>
+      </div>
+
+      <!-- Custom Notes -->
+      <div class="glass rounded-2xl p-5 space-y-3">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2">📝 Special Requests</h3>
+        <textarea x-model="composeForm.notes" placeholder="e.g., Include a lullaby my grandmother used to sing, use pentatonic scale, avoid sudden changes..." class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-violet-400 focus:ring-2 focus:ring-violet-200 outline-none text-sm resize-none" rows="3"></textarea>
+      </div>
+
+      <!-- Compose Button -->
+      <button @click="compose()" 
+              class="w-full py-5 btn-primary text-white rounded-2xl font-extrabold text-lg shadow-xl shadow-violet-300/50 active:scale-95 transition flex items-center justify-center gap-2"
+              :disabled="loading">
+        <span class="text-2xl">🎵</span> Compose Music
+      </button>
+    </div>
+  </div>
+
+  <!-- LIBRARY TAB -->
+  <div x-show="activeTab === 'library'" class="space-y-4 fade-in">
+    <div x-show="compositions.length === 0" class="glass rounded-3xl p-8 text-center">
+      <div class="text-5xl mb-3">🎼</div>
+      <h3 class="font-bold text-gray-700 mb-1">No compositions yet</h3>
+      <p class="text-xs text-gray-400 mb-4">Create your first personalized track!</p>
+      <button @click="activeTab = 'compose'" class="px-6 py-3 btn-primary text-white rounded-xl font-bold text-sm">Start Composing ✨</button>
+    </div>
+
+    <template x-for="(comp, idx) in compositions.slice().reverse()" :key="comp.id">
+      <div class="glass rounded-2xl p-4 space-y-3 fade-in">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <h4 class="font-bold text-gray-800 text-sm" x-text="comp.title"></h4>
+            <p class="text-[10px] text-gray-400 mt-0.5" x-text="comp.stage.charAt(0).toUpperCase() + comp.stage.slice(1) + ' • ' + comp.mood + ' • ' + comp.duration + ' min'"></p>
+          </div>
+          <span class="text-xs bg-violet-100 text-violet-600 px-2 py-1 rounded-full font-bold" x-text="comp.stage === 'prenatal' ? '🤰' : '👶'"></span>
+        </div>
+        
+        <p class="text-xs text-gray-500 leading-relaxed" x-text="comp.description"></p>
+        
+        <!-- Frequency Info -->
+        <div class="flex gap-2 flex-wrap">
+          <span class="text-[10px] bg-sky-50 text-sky-600 px-2 py-1 rounded-full font-bold" x-text="'🎵 ' + comp.keySignature"></span>
+          <span class="text-[10px] bg-pink-50 text-pink-600 px-2 py-1 rounded-full font-bold" x-text="'♩ ' + comp.bpm + ' BPM'"></span>
+          <span class="text-[10px] bg-violet-50 text-violet-600 px-2 py-1 rounded-full font-bold" x-text="'📊 ' + comp.freqRange"></span>
+        </div>
+
+        <!-- Play Controls -->
+        <div class="flex items-center gap-2">
+          <button @click="playComposition(comp)" 
+                  class="w-12 h-12 rounded-full btn-primary text-white flex items-center justify-center shadow-md active:scale-90 transition text-xl">
+            <span x-text="currentlyPlaying === comp.id ? '⏸' : '▶'"></span>
+          </button>
+          <div class="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-violet-400 to-sky-400 rounded-full transition-all duration-300" 
+                 :style="'width:' + (currentlyPlaying === comp.id ? playProgress : 0) + '%'"></div>
+          </div>
+          <span class="text-[10px] text-gray-400 font-mono" x-text="currentlyPlaying === comp.id ? formatTime(playTime) : comp.duration + ':00'"></span>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-2">
+          <button x-show="comp.stage === 'prenatal'" @click="morphToPostnatal(comp)" 
+                  class="flex-1 py-2.5 btn-warm text-white rounded-xl text-xs font-bold active:scale-95 transition"
+                  :disabled="loading">
+            👶 Morph to Postnatal
+          </button>
+          <button @click="rateComposition(comp)" class="px-4 py-2.5 glass rounded-xl text-xs font-bold text-gray-600 active:scale-95 transition">
+            <span x-text="comp.rating ? '⭐'.repeat(comp.rating) : '⭐ Rate'"></span>
+          </button>
+          <button @click="deleteComposition(comp.id)" class="px-3 py-2.5 glass rounded-xl text-xs active:scale-95 transition">🗑️</button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- FEEDBACK TAB -->
+  <div x-show="activeTab === 'feedback'" class="space-y-4 fade-in">
+    <div class="glass rounded-2xl p-5 space-y-4">
+      <div class="text-center">
+        <span class="text-4xl block mb-2">📊</span>
+        <h3 class="font-bold text-gray-800">Soothing Effectiveness Log</h3>
+        <p class="text-xs text-gray-400 mt-1">Track how baby responds to help AI create better music</p>
+      </div>
+
+      <div x-show="compositions.length === 0" class="text-center py-4">
+        <p class="text-sm text-gray-400">Compose music first, then log responses here!</p>
+      </div>
+
+      <div x-show="compositions.length > 0" class="space-y-3">
+        <select x-model="feedbackForm.compositionId" class="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm">
+          <option value="">Select a composition...</option>
+          <template x-for="comp in compositions" :key="comp.id">
+            <option :value="comp.id" x-text="comp.title"></option>
+          </template>
+        </select>
+
+        <div>
+          <label class="text-xs font-bold text-gray-600 block mb-2">Baby's Response</label>
+          <div class="grid grid-cols-2 gap-2">
+            <template x-for="resp in responses" :key="resp.id">
+              <button @click="feedbackForm.response = resp.id"
+                      class="p-3 rounded-xl text-xs font-bold transition active:scale-95"
+                      :class="feedbackForm.response === resp.id ? 'btn-primary text-white shadow-md' : 'glass-dark text-gray-600'">
+                <span x-text="resp.emoji" class="text-xl block mb-1"></span>
+                <span x-text="resp.label" class="block"></span>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs font-bold text-gray-600 block mb-2">Time to Calm (minutes)</label>
+          <input type="number" x-model.number="feedbackForm.calmTime" min="0" max="60" placeholder="e.g., 5" class="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm">
+        </div>
+
+        <textarea x-model="feedbackForm.notes" placeholder="Any observations? (e.g., baby kicked more during piano section)" class="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm resize-none" rows="2"></textarea>
+
+        <button @click="submitFeedback()" class="w-full py-4 btn-primary text-white rounded-2xl font-bold active:scale-95 transition" :disabled="!feedbackForm.compositionId || !feedbackForm.response">
+          📝 Log Response
+        </button>
+      </div>
+    </div>
+
+    <!-- Feedback History -->
+    <div x-show="feedbackLogs.length > 0" class="space-y-3">
+      <h3 class="font-bold text-gray-700 text-sm px-1">Recent Logs</h3>
+      <template x-for="log in feedbackLogs.slice().reverse().slice(0,10)" :key="log.id">
+        <div class="glass rounded-xl p-3 flex items-center gap-3">
+          <span class="text-2xl" x-text="responses.find(r => r.id === log.response)?.emoji || '🎵'"></span>
+          <div class="flex-1">
+            <p class="text-xs font-bold text-gray-700" x-text="compositions.find(c => c.id === log.compositionId)?.title || 'Unknown'"></p>
+            <p class="text-[10px] text-gray-400" x-text="(log.calmTime ? 'Calmed in ' + log.calmTime + ' min • ' : '') + new Date(log.timestamp).toLocaleDateString()"></p>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Insights -->
+    <div x-show="feedbackLogs.length >= 3" class="glass rounded-2xl p-5 space-y-3">
+      <h3 class="font-bold text-gray-800 flex items-center gap-2">💡 AI Insights</h3>
+      <button @click="getInsights()" class="w-full py-3 glass rounded-xl text-sm font-bold text-violet-600 active:scale-95 transition" :disabled="loading">
+        Analyze Patterns ✨
+      </button>
+      <p x-show="insights" class="text-xs text-gray-600 leading-relaxed" x-text="insights"></p>
+    </div>
+  </div>
+
+</main>
+
+<!-- Rating Modal -->
+<div x-show="showRatingModal" class="fixed inset-0 z-50 flex items-end justify-center bg-black/30 backdrop-blur-sm" @click.self="showRatingModal = false">
+  <div class="bg-white rounded-t-3xl p-6 w-full max-w-lg space-y-4 fade-in">
+    <div class="text-center">
+      <h3 class="font-bold text-lg">Rate this Composition</h3>
+      <p class="text-xs text-gray-400">How effective was it for soothing?</p>
+    </div>
+    <div class="flex justify-center gap-4 py-4">
+      <template x-for="star in [1,2,3,4,5]" :key="star">
+        <button @click="ratingValue = star" class="text-4xl rating-star" :class="star <= ratingValue ? 'opacity-100' : 'opacity-30'" x-text="'⭐'"></button>
+      </template>
+    </div>
+    <div class="flex gap-2">
+      <button @click="showRatingModal = false" class="flex-1 py-3 glass rounded-xl font-bold text-sm">Cancel</button>
+      <button @click="saveRating()" class="flex-1 py-3 btn-primary text-white rounded-xl font-bold text-sm">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Global AI stats
+window.aiStats_totalInputTokens = 0;
+window.aiStats_totalOutputTokens = 0;
+window.aiStats_totalTime = 0;
+window.aiStats_genericAI_time = 0;
+
+function app() {
+  return {
+    activeTab: 'compose',
+    tabs: [
+      { id: 'compose', label: 'Compose', emoji: '🎵' },
+      { id: 'library', label: 'Library', emoji: '📚' },
+      { id: 'feedback', label: 'Insights', emoji: '📊' }
+    ],
+    loading: false,
+    loadingMessage: 'Composing your melody...',
+    notification: { show: false, message: '', type: 'success' },
+    showSettings: false,
+    showRatingModal: false,
+    ratingValue: 3,
+    ratingCompId: null,
+    
+    profile: { name: '', babyName: '', role: 'parent' },
+    
+    stages: [
+      { id: 'prenatal', emoji: '🤰', label: 'Prenatal', desc: 'In-utero tuned' },
+      { id: 'postnatal', emoji: '👶', label: 'Postnatal', desc: 'Newborn soothing' }
+    ],
+    
+    moods: [
+      { id: 'calm', emoji: '😌', label: 'Calm' },
+      { id: 'sleep', emoji: '😴', label: 'Sleep' },
+      { id: 'bonding', emoji: '💕', label: 'Bonding' },
+      { id: 'playful', emoji: '🎈', label: 'Playful' },
+      { id: 'focus', emoji: '🧘', label: 'Focus' },
+      { id: 'comfort', emoji: '🤗', label: 'Comfort' }
+    ],
+    
+    instruments: [
+      { id: 'piano', emoji: '🎹', label: 'Piano' },
+      { id: 'guitar', emoji: '🎸', label: 'Guitar' },
+      { id: 'strings', emoji: '🎻', label: 'Strings' },
+      { id: 'harp', emoji: '🪕', label: 'Harp' },
+      { id: 'bells', emoji: '🔔', label: 'Bells' },
+      { id: 'nature', emoji: '🌊', label: 'Nature' },
+      { id: 'voice', emoji: '🎤', label: 'Humming' },
+      { id: 'flute', emoji: '🎶', label: 'Flute' }
+    ],
+    
+    responses: [
+      { id: 'deeply_soothed', emoji: '😴', label: 'Deeply Soothed' },
+      { id: 'calm', emoji: '😊', label: 'Calm & Content' },
+      { id: 'neutral', emoji: '😐', label: 'Neutral' },
+      { id: 'alert', emoji: '👀', label: 'Alert/Active' },
+      { id: 'fussy', emoji: '😢', label: 'Fussy' },
+      { id: 'excited', emoji: '🤩', label: 'Excited (kicks)' }
+    ],
+    
+    composeForm: {
+      stage: 'prenatal',
+      trimester: 2,
+      mood: 'calm',
+      instruments: ['piano', 'strings'],
+      duration: 3,
+      notes: ''
+    },
+    
+    feedbackForm: {
+      compositionId: '',
+      response: '',
+      calmTime: null,
+      notes: ''
+    },
+    
+    compositions: [],
+    feedbackLogs: [],
+    insights: '',
+    currentlyPlaying: null,
+    playProgress: 0,
+    playTime: 0,
+    playInterval: null,
+    synths: [],
+    
+    aiStats: {
+      totalCalls: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTime: 0
+    },
+    
+    init() {
+      const saved = localStorage.getItem('bellytunes_data');
+      if (saved) {
+        const data = JSON.parse(saved);
+        this.profile = data.profile || this.profile;
+        this.compositions = data.compositions || [];
+        this.feedbackLogs = data.feedbackLogs || [];
+        this.aiStats = data.aiStats || this.aiStats;
+      }
+    },
+    
+    save() {
+      localStorage.setItem('bellytunes_data', JSON.stringify({
+        profile: this.profile,
+        compositions: this.compositions,
+        feedbackLogs: this.feedbackLogs,
+        aiStats: this.aiStats
+      }));
+    },
+    
+    notify(message, type = 'success') {
+      this.notification = { show: true, message, type };
+      setTimeout(() => this.notification.show = false, 4000);
+    },
+    
+    saveProfile() {
+      if (!this.profile.name) return;
+      this.save();
+      this.notify('Welcome, ' + this.profile.name + '! Let\'s make music! 🎵');
+    },
+    
+    toggleInstrument(id) {
+      const idx = this.composeForm.instruments.indexOf(id);
+      if (idx > -1) {
+        this.composeForm.instruments.splice(idx, 1);
+      } else {
+        if (this.composeForm.instruments.length < 4) {
+          this.composeForm.instruments.push(id);
+        }
+      }
+    },
+    
+    async callAI(prompt, retries = 3) {
+      const startTime = Date.now();
+      for (let i = 0; i < retries; i++) {
+        try {
+          const res = await fetch('https://16504442930.work/run_prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              alias: 'genericAI',
+              params: { prompt }
+            })
+          });
+          const data = await res.json();
+          const elapsed = Date.now() - startTime;
+          
+          // Update stats
+          const inputTokens = data.usage?.input_tokens || data.input_tokens || 0;
+          const outputTokens = data.usage?.output_tokens || data.output_tokens || 0;
+          this.aiStats.totalCalls++;
+          this.aiStats.totalInputTokens += inputTokens;
+          this.aiStats.totalOutputTokens += outputTokens;
+          this.aiStats.totalTime += elapsed;
+          window.aiStats_totalInputTokens += inputTokens;
+          window.aiStats_totalOutputTokens += outputTokens;
+          window.aiStats_totalTime += elapsed;
+          window.aiStats_genericAI_time += elapsed;
+          
+          this.save();
+          return data;
+        } catch (err) {
+          if (i === retries - 1) {
+            // Format error with AI
+            try {
+              const errRes = await fetch('https://16504442930.work/run_prompt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  alias: 'genericAI',
+                  params: { prompt: `Reformat this error message to be user-friendly and empower the user to fix it. Error: ${err.message}. Full response: ${JSON.stringify(err)}. Return a JSON object with key "friendlyError" as a string.` }
+                })
+              });
+              const errData = await errRes.json();
+              throw new Error(errData.friendlyError || err.message);
+            } catch(e2) {
+              throw new Error('Our AI composer is taking a break. Please try again in a moment! 🎵 (' + err.message + ')');
+            }
+          }
+          await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        }
+      }
+    },
+    
+    async compose() {
+      this.loading = true;
+      this.loadingMessage = 'AI is composing your personalized melody... 🎵';
+      
+      try {
+        const form = this.composeForm;
+        const feedbackContext = this.feedbackLogs.length > 0 
+          ? `Previous infant response data shows: ${JSON.stringify(this.feedbackLogs.slice(-5).map(l => ({response: l.response, calmTime: l.calmTime})))}. Use this to refine the composition.`
+          : '';
+        
+        const prompt = `You are an expert prenatal/postnatal music composer and neonatal sound therapist. Create a detailed music composition specification for a ${form.stage} baby.
+
+Context:
+- Stage: ${form.stage}${form.stage === 'prenatal' ? ', Trimester: ' + form.trimester : ''}
+- Desired mood/intent: ${form.mood}
+- Preferred instruments: ${form.instruments.join(', ')}
+- Duration: ${form.duration} minutes
+- Special requests: ${form.notes || 'None'}
+- Parent role: ${this.profile.role}
+${form.stage === 'prenatal' ? `
+PRENATAL SOUND SCIENCE:
+- Amniotic fluid filters frequencies above ~500Hz significantly
+- Low frequencies (100-300Hz) transmit best through the womb
+- Rhythmic patterns mimicking maternal heartbeat (60-80 BPM) are most soothing
+- Trimester 1: Focus on rhythmic vibrations; Trimester 2: Simple melodies in mid-low range; Trimester 3: More complex melodies, baby recognizes patterns
+` : `
+POSTNATAL SOUND SCIENCE:
+- Newborns respond best to 250-600Hz range
+- Tempo should match resting heart rate (100-120 BPM for alert calm, 60-80 for sleep)
+- White noise and nature sounds mimic womb environment
+- Simple repetitive melodies help with pattern recognition
+`}
+${feedbackContext}
+
+Return EXACTLY this JSON structure (no extra keys, no markdown):
+{
+  "title": "string - a poetic, unique title for this composition (5 words max)",
+  "description": "string - 2 sentences describing the piece and its developmental benefits",
+  "keySignature": "string - the musical key (e.g., 'C Major', 'G Minor')",
+  "bpm": "number - beats per minute as integer",
+  "freqRange": "string - frequency range description (e.g., '100-400Hz')",
+  "scale": "string - one of: major, minor, pentatonic, dorian, lydian",
+  "noteSequence": "array of objects with keys: note (string like 'C4', 'E3', etc.), duration (string like '4n', '8n', '2n', '1n'), velocity (number 0.1-0.9) - EXACTLY 16 notes that form the main melodic theme",
+  "bassLine": "array of objects with keys: note (string like 'C2', 'G2'), duration (string like '1n', '2n') - EXACTLY 4 notes for bass accompaniment pattern",
+  "chordProgression": "array of 4 strings representing chord names like 'Cmaj', 'Am', 'F', 'G'",
+  "padNotes": "array of 4 strings representing sustained pad notes like 'C3', 'E3', 'G3', 'C4'",
+  "dynamicCurve": "string - one of: crescendo, decrescendo, wave, flat",
+  "evolutionNotes": "string - how this piece could morph for the next developmental stage"
+}`;
+
+        const result = await this.callAI(prompt);
+        
+        const comp = {
+          id: Date.now().toString(),
+          ...result,
+          stage: form.stage,
+          trimester: form.trimester,
+          mood: form.mood,
+          instruments: [...form.instruments],
+          duration: form.duration,
+          rating: null,
+          createdAt: new Date().toISOString(),
+          bpm: typeof result.bpm === 'number' ? result.bpm : parseInt(result.bpm) || 72
+        };
+        
+        this.compositions.push(comp);
+        this.save();
+        this.notify('🎵 "' + comp.title + '" is ready! Check your Library.');
+        this.activeTab = 'library';
+        
+      } catch (err) {
+        this.notify(err.message, 'error');
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    async morphToPostnatal(comp) {
+      this.loading = true;
+      this.loadingMessage = 'Morphing to postnatal version... 👶';
+      
+      try {
+        const feedbackContext = this.feedbackLogs.filter(l => l.compositionId === comp.id).length > 0
+          ? `Infant feedback for original: ${JSON.stringify(this.feedbackLogs.filter(l => l.compositionId === comp.id))}`
+          : '';
+        
+        const prompt = `You are an expert neonatal music therapist. Take this prenatal composition and morph it into a postnatal soothing version.
+
+Original prenatal composition:
+- Title: ${comp.title}
+- Key: ${comp.keySignature}
+- BPM: ${comp.bpm}
+- Scale: ${comp.scale}
+- Frequency range: ${comp.freqRange}
+- Original melody notes: ${JSON.stringify(comp.noteSequence)}
+- Original bass: ${JSON.stringify(comp.bassLine)}
+${feedbackContext}
+
+MORPHING RULES:
+1. PRESERVE the melodic contour (relative pitch relationships) so baby recognizes the familiar melody
+2. SHIFT frequencies up to 250-600Hz optimal newborn range
+3. ADJUST tempo: if for sleep use 60-80 BPM, if for calm alertness use 90-110 BPM
+4. ADD more gentle dynamics (softer velocities)
+5. SIMPLIFY rhythmic complexity for newborn processing
+6. Keep the emotional character but make it more direct (no amniotic filtering needed)
+
+Return EXACTLY this JSON structure:
+{
+  "title": "string - new title incorporating 'evolved' or 'postnatal' theme (5 words max)",
+  "description": "string - 2 sentences about the morphed version and how it preserves prenatal familiarity",
+  "keySignature": "string - musical key",
+  "bpm": "number - beats per minute as integer",
+  "freqRange": "string - frequency range",
+  "scale": "string - one of: major, minor, pentatonic, dorian, lydian",
+  "noteSequence": "array of 16 objects with keys: note (string), duration (string like '4n','8n','2n','1n'), velocity (number 0.1-0.7)",
+  "bassLine": "array of 4 objects with keys: note (string), duration (string)",
+  "chordProgression": "array of 4 chord name strings",
+  "padNotes": "array of 4 note strings",
+  "dynamicCurve": "string - one of: crescendo, decrescendo, wave, flat",
+  "evolutionNotes": "string - suggestions for further adaptation as infant grows"
+}`;
+
+        const result = await this.callAI(prompt);
+        
+        const morphed = {
+          id: Date.now().toString(),
+          ...result,
+          stage: 'postnatal',
+          trimester: null,
+          mood: comp.mood,
+          instruments: comp.instruments,
+          duration: comp.duration,
+          rating: null,
+          parentId: comp.id,
+          createdAt: new Date().toISOString(),
+          bpm: typeof result.bpm === 'number' ? result.bpm : parseInt(result.bpm) || 80
+        };
+        
+        this.compositions.push(morphed);
+        this.save();
+        this.notify('👶 Postnatal version "' + morphed.title + '" created!');
+        
+      } catch (err) {
+        this.notify(err.message, 'error');
+      } finally {
+        this.loading = false;
+      }
+    },
+    
+    playComposition(comp) {
+      if (this.currentlyPlaying === comp.id) {
+        this.stopPlayback();
+        return;
+      }
+      
+      this.stopPlayback();
+      this.currentlyPlaying = comp.id;
+      this.playProgress = 0;
+      this.playTime = 0;
+      
+      try {
+        Tone.start();
+        
+        const bpm = comp.bpm || 72;
+        Tone.Transport.bpm.value = bpm;
+        
+        // Create synths based on instruments
+        const mainSynth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: comp.instruments?.includes('piano') ? 'triangle' : comp.instruments?.includes('bells') ? 'sine' : 'triangle' },
+          envelope: { attack: 0.3, decay: 0.5, sustain: 0.6, release: 1.5 },
+          volume: -12
+        }).toDestination();
+        this.synths.push(mainSynth);
+        
+        // Pad synth
+        const padSynth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: 'sine' },
+          envelope: { attack: 1.0, decay: 0.5, sustain: 0.8, release: 2.0 },
+          volume: -20
+        }).toDestination();
+        this.synths.push(padSynth);
+        
+        // Bass synth
+        const bassSynth = new Tone.Synth({
+          oscillator: { type: 'sine' },
+          envelope: { attack: 0.5, decay: 0.3, sustain: 0.7, release: 1.0 },
+          volume: -18
+        }).toDestination();
+        this.synths.push(bassSynth);
+        
+        // Reverb
+        const reverb = new Tone.Reverb({ decay: 3, wet: 0.4 }).toDestination();
+        mainSynth.connect(reverb);
+        padSynth.connect(reverb);
+        
+        const notes = comp.noteSequence || [];
+        const bassNotes = comp.bassLine || [];
+        const padNotesList = comp.padNotes || ['C3', 'E3', 'G3', 'C4'];
+        
+        let noteIndex = 0;
+        let bassIndex = 0;
+        let beatCount = 0;
+        const totalBeats = comp.duration * bpm;
+        
+        // Main melody loop
+        const melodyLoop = new Tone.Loop((time) => {
+          if (notes.length > 0) {
+            const n = notes[noteIndex % notes.length];
+            const vel = typeof n.velocity === 'number' ? n.velocity : 0.5;
+            try {
+              mainSynth.triggerAttackRelease(n.note, n.duration || '4n', time, vel);
+            } catch(e) {}
+            noteIndex++;
+          }
+          beatCount++;
+          this.playProgress = Math.min(100, (beatCount / totalBeats) * 100);
+          this.playTime = Math.floor(beatCount / (bpm / 60));
+          
+          if (beatCount >= totalBeats) {
+            this.stopPlayback();
+          }
+        }, '4n');
+        
+        // Bass loop
+        const bassLoop = new Tone.Loop((time) => {
+          if (bassNotes.length > 0) {
+            const b = bassNotes[bassIndex % bassNotes.length];
+            try {
+              bassSynth.triggerAttackRelease(b.note, b.duration || '1n', time, 0.3);
+            } catch(e) {}
+            bassIndex++;
+          }
+        }, '1m');
+        
+        // Pad
+        const padLoop = new Tone.Loop((time) => {
+          try {
+            padSynth.triggerAttackRelease(padNotesList, '1m', time, 0.2);
+          } catch(e) {}
+        }, '2m');
+        
+        melodyLoop.start(0);
+        bassLoop.start(0);
+        padLoop.start(0);
+        
+        this.synths.push(melodyLoop, bassLoop, padLoop, reverb);
+        
+        Tone.Transport.start();
+        
+        // Progress timer
+        this.playInterval = setInterval(() => {
+          if (this.currentlyPlaying !== comp.id) {
+            clearInterval(this.playInterval);
+          }
+        }, 100);
+        
+      } catch (err) {
+        console.error('Playback error:', err);
+        this.notify('Tap again to enable audio playback 🔊', 'error');
+        this.currentlyPlaying = null;
+      }
+    },
+    
+    stopPlayback() {
+      Tone.Transport.stop();
+      Tone.Transport.cancel();
+      this.synths.forEach(s => {
+        try { 
+          if (s.dispose) s.dispose();
+          else if (s.stop) s.stop();
+        } catch(e) {}
+      });
+      this.synths = [];
+      this.currentlyPlaying = null;
+      this.playProgress = 0;
+      this.playTime = 0;
+      if (this.playInterval) clearInterval(this.playInterval);
+    },
+    
+    formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return m + ':' + (s < 10 ? '0' : '') + s;
+    },
+    
+    rateComposition(comp) {
+      this.ratingCompId = comp.id;
+      this.ratingValue = comp.rating || 3;
+      this.showRatingModal = true;
+    },
+    
+    saveRating() {
+      const comp = this.compositions.find(c => c.id === this.ratingCompId);
+      if (comp) {
+        comp.rating = this.ratingValue;
+        this.save();
+        this.notify('Rating saved! ⭐');
+      }
+      this.showRatingModal = false;
+    },
+    
+    deleteComposition(id) {
+      if (confirm('Delete this composition?')) {
+        this.compositions = this.compositions.filter(c => c.id !== id);
+        this.feedbackLogs = this.feedbackLogs.filter(l => l.compositionId !== id);
+        if (this.currentlyPlaying === id) this.stopPlayback();
+        this.save();
+        this.notify('Composition deleted');
+      }
+    },
+    
+    submitFeedback() {
+      if (!this.feedbackForm.compositionId || !this.feedbackForm.response) return;
+      
+      this.feedbackLogs.push({
+        id: Date.now().toString(),
+        ...this.feedbackForm,
+        timestamp: new Date().toISOString()
+      });
+      
+      this.save();
+      this.notify('Response logged! 📊 This helps AI create better music.');
+      
+      this.feedbackForm = { compositionId: '', response: '', calmTime: null, notes: '' };
+    },
+    
+    async getInsights() {
+      this.loading = true;
+      this.loadingMessage = 'Analyzing response patterns... 🧠';
+      
+      try {
+        const prompt = `You are a neonatal music therapy expert. Analyze these infant soothing response logs and provide actionable insights for improving future music compositions.
+
+Response logs:
+${JSON.stringify(this.feedbackLogs.slice(-20))}
+
+Composition library:
+${JSON.stringify(this.compositions.map(c => ({title: c.title, mood: c.mood, bpm: c.bpm, keySignature: c.keySignature, stage: c.stage, rating: c.rating, instruments: c.instruments})))}
+
+Provide analysis considering:
+1. Which moods/tempos/instruments seem most effective
+2. Patterns in calming times
+3. Specific recommendations for next composition
+
+Return EXACTLY this JSON:
+{
+  "insights": "string - 3-4 sentence paragraph with emoji, friendly tone, actionable recommendations for the parent"
+}`;
+
+        const result = await this.callAI(prompt);
+        this.insights = result.insights;
+        this.save();
+        
+      } catch (err) {
+        this.notify(err.message, 'error');
+      } finally {
+        this.loading = false;
+      }
+    }
+  };
+}
+</script>
+</body>
+</html>
